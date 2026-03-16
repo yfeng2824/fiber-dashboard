@@ -24,5 +24,28 @@
 
 /* Select Option Hover */
 .select-option:hover {
-  background-color: var(--surface-layer-hover);
+  background-color: var(--surface-popover-hover);
+}
+
+/* Trigger selected state (Figma 31528:9696) */
+.custom-select-trigger-selected {
+  background-color: var(--purple);
+}
+
+.custom-select-trigger-caret-selected img,
+.custom-select-trigger-caret-selected svg {
+  filter: brightness(0) invert(1);
+}
+
+/* Selected option in dropdown */
+.select-option[data-selected='true'] {
+  background-color: var(--purple);
+}
+
+.select-option[data-selected='true']:hover {
+  background-color: var(--purple);
+}
+
+.select-option[data-selected='true'] .select-option-label {
+  color: var(--text-on-color);
 }

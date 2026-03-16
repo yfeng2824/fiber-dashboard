@@ -1,5 +1,5 @@
 import Image from "next/image";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { GlassCardContainer } from "./GlassCardContainer";
 import { Tooltip } from "./Tooltip";
 
@@ -106,6 +106,25 @@ export default function KpiCard({
   const isPositive = trending === 'up';
   const { number, suffix } = formatNumber(value);
   const [showTooltip, setShowTooltip] = useState(false);
+  const [isTooltipPinned, setIsTooltipPinned] = useState(false);
+  const tooltipRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isTooltipPinned) return;
+
+    const handleOutside = (event: MouseEvent | TouchEvent) => {
+      if (tooltipRef.current && !tooltipRef.current.contains(event.target as Node)) {
+        setIsTooltipPinned(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleOutside);
+    document.addEventListener("touchstart", handleOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleOutside);
+      document.removeEventListener("touchstart", handleOutside);
+    };
+  }, [isTooltipPinned]);
 
   return (
     <GlassCardContainer className={`w-full inline-flex flex-col justify-center items-start gap-2 ${className}`.trim()}>
@@ -116,27 +135,35 @@ export default function KpiCard({
             {label}
           </div>
           {tooltip && (
-            <Tooltip 
-              content={tooltip} 
-              show={showTooltip}
-              tooltipClassName="!whitespace-normal min-w-[360px] max-w-[420px] text-left"
-              showArrow={false}
-              placement="bottom"
-            >
-              <div 
-                className="w-4 h-4 relative cursor-pointer flex-shrink-0"
-                onMouseEnter={() => setShowTooltip(true)}
-                onMouseLeave={() => setShowTooltip(false)}
+            <div ref={tooltipRef}>
+              <Tooltip 
+                content={tooltip} 
+                show={showTooltip || isTooltipPinned}
+                tooltipClassName="!whitespace-normal min-w-[280px] max-w-[420px] text-left"
+                showArrow={false}
+                placement="bottom"
               >
-                <Image
-                  src="/info.svg"
-                  alt="info"
-                  width={16}
-                  height={16}
-                  className="w-full h-full"
-                />
-              </div>
-            </Tooltip>
+                <button
+                  type="button"
+                  className="-m-1 inline-flex h-6 w-6 items-center justify-center cursor-pointer flex-shrink-0"
+                  aria-label="More info"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setIsTooltipPinned((prev) => !prev);
+                  }}
+                  onMouseEnter={() => setShowTooltip(true)}
+                  onMouseLeave={() => setShowTooltip(false)}
+                >
+                  <Image
+                    src="/info.svg"
+                    alt="info"
+                    width={16}
+                    height={16}
+                    className="w-4 h-4"
+                  />
+                </button>
+              </Tooltip>
+            </div>
           )}
         </div>
         {onViewDetails && (

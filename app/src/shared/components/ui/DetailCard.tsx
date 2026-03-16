@@ -1,11 +1,11 @@
 'use client';
 
-import React from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { GlassCardContainer } from "./GlassCardContainer";
 import { StatusBadge, StatusType } from "./StatusBadge";
 import Image from "next/image";
 import { CopyButton } from "./CopyButton";
-import * as Tooltip from '@radix-ui/react-tooltip';
+import { Tooltip as AppTooltip } from "./Tooltip";
 
 export interface DetailCardProps {
   /** 节点名称 */
@@ -71,11 +71,62 @@ export const DetailCard: React.FC<DetailCardProps> = ({
   assetColor,
   extraFields,
 }) => {
+  const FieldTooltipLabel = ({
+    label,
+    tooltip,
+  }: {
+    label: string;
+    tooltip: string;
+  }) => {
+    const [isHovered, setIsHovered] = useState(false);
+    const [isPinned, setIsPinned] = useState(false);
+    const tooltipRef = useRef<HTMLSpanElement>(null);
+
+    useEffect(() => {
+      if (!isPinned) return;
+
+      const handleOutside = (event: MouseEvent | TouchEvent) => {
+        if (tooltipRef.current && !tooltipRef.current.contains(event.target as Node)) {
+          setIsPinned(false);
+        }
+      };
+
+      document.addEventListener("mousedown", handleOutside);
+      document.addEventListener("touchstart", handleOutside);
+      return () => {
+        document.removeEventListener("mousedown", handleOutside);
+        document.removeEventListener("touchstart", handleOutside);
+      };
+    }, [isPinned]);
+
+    return (
+      <span ref={tooltipRef}>
+        <AppTooltip
+          content={tooltip}
+          show={isHovered || isPinned}
+          tooltipClassName="!whitespace-normal min-w-[280px] max-w-[360px] text-left"
+          showArrow={false}
+        >
+          <button
+            type="button"
+            className="cursor-help"
+            onClick={(event) => {
+              event.stopPropagation();
+              setIsPinned((prev) => !prev);
+            }}
+            onMouseEnter={() => setIsHovered(true)}
+            onMouseLeave={() => setIsHovered(false)}
+          >
+            {label}:
+          </button>
+        </AppTooltip>
+      </span>
+    );
+  };
 
   return (
     <GlassCardContainer className={className}>
-      <Tooltip.Provider delayDuration={200}>
-        <div className="flex flex-col justify-center items-start gap-2">
+      <div className="flex flex-col justify-center items-start gap-2">
         {/* 顶部额外内容 */}
         {topExtra && <div className="w-full">{topExtra}</div>}
 
@@ -226,20 +277,7 @@ export const DetailCard: React.FC<DetailCardProps> = ({
             <div key={field.key} className="inline-flex justify-start items-start gap-2 w-full">
               <div className={`text-body text-secondary w-32 flex-shrink-0 ${field.isSubField ? 'text-sm' : ''}`}>
                 {field.tooltip ? (
-                  <Tooltip.Root>
-                    <Tooltip.Trigger asChild>
-                      <span className="cursor-help">{field.label}:</span>
-                    </Tooltip.Trigger>
-                    <Tooltip.Portal>
-                      <Tooltip.Content
-                        className="bg-[var(--surface-inverse)] rounded-lg px-3 py-2 text-sm text-on-color type-body shadow-lg max-w-[240px]"
-                        sideOffset={5}
-                      >
-                        {field.tooltip}
-                        <Tooltip.Arrow className="fill-[var(--surface-inverse)]" />
-                      </Tooltip.Content>
-                    </Tooltip.Portal>
-                  </Tooltip.Root>
+                  <FieldTooltipLabel label={field.label} tooltip={field.tooltip} />
                 ) : (
                   <span>{field.label}:</span>
                 )}
@@ -256,8 +294,7 @@ export const DetailCard: React.FC<DetailCardProps> = ({
             </div>
           );
         })}
-        </div>
-      </Tooltip.Provider>
+      </div>
     </GlassCardContainer>
   );
 };

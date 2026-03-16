@@ -29,24 +29,33 @@ export function useChannelData(channelOutpoint: string) {
   });
 
   // 获取节点1信息
-  const { data: node1Info } = useQuery({
+  const {
+    data: node1Info,
+    isLoading: node1Loading,
+  } = useQuery({
     queryKey: ["node-info", channelInfo?.node1, currentNetwork],
     queryFn: () => apiClient.getNodeInfo(channelInfo!.node1),
     enabled: !!channelInfo?.node1,
   });
 
   // 获取节点2信息
-  const { data: node2Info } = useQuery({
+  const {
+    data: node2Info,
+    isLoading: node2Loading,
+  } = useQuery({
     queryKey: ["node-info", channelInfo?.node2, currentNetwork],
     queryFn: () => apiClient.getNodeInfo(channelInfo!.node2),
     enabled: !!channelInfo?.node2,
   });
+
+  const participantsLoading = !!channelInfo && (node1Loading || node2Loading);
 
   return {
     channelInfo,
     channelState,
     node1Info,
     node2Info,
+    participantsLoading,
     isLoading: channelLoading || stateLoading,
     error: channelError || stateError,
   };

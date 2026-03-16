@@ -1,21 +1,22 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import Image from "next/image";
+import { createPortal } from "react-dom";
 import { useNetwork } from "@/features/networks/context/NetworkContext";
 import { RustNodeInfo } from "@/lib/types";
 import {
-  SectionHeader,
   Table,
   Pagination,
   ColumnDef,
   SortState,
   GlassCardContainer,
-  SearchInput,
   CustomSelect,
   SelectOption,
   CopyButton,
+  GlassButton,
 } from "@/shared/components/ui";
 import NodeNetworkMap, { NodeMapData, NodeConnectionData } from "@/shared/components/chart/NodeNetworkMap";
 
@@ -50,11 +51,14 @@ export const Nodes = () => {
   const isMockMode = searchParams.get('test') === '1';
   
   const [currentPage, setCurrentPage] = useState(1);
-  const [searchValue, setSearchValue] = useState('');
-  const [debouncedSearchValue, setDebouncedSearchValue] = useState(''); // 防抖后的搜索值
   const [sortKey, setSortKey] = useState<string>(''); // 排序字段，默认为空表示不排序
   const [sortState, setSortState] = useState<SortState>('none'); // 排序方向，默认为 none
   const [selectedRegion, setSelectedRegion] = useState<string>(''); // 选中的 region
+  const [isRotating, setIsRotating] = useState(false);
+  const [isInfoOpen, setIsInfoOpen] = useState(false);
+  const infoButtonRef = useRef<HTMLButtonElement>(null);
+  const infoPopoverRef = useRef<HTMLDivElement>(null);
+  const [infoPopoverPosition, setInfoPopoverPosition] = useState<{ top: number; left: number } | null>(null);
 
 
   // 获取所有 region 选项
@@ -93,7 +97,7 @@ export const Nodes = () => {
 
   // 使用分页接口获取节点数据（每次只请求当前页）
   const { data: nodesResponse, isLoading: nodesLoading, dataUpdatedAt: nodesUpdatedAt } = useQuery({
-    queryKey: ['nodes', currentNetwork, backendPage, sortKey, sortState, debouncedSearchValue, selectedRegion],
+    queryKey: ['nodes', currentNetwork, backendPage, sortKey, sortState, selectedRegion],
     queryFn: async () => {
       const sortBy = getSortBy(sortKey);
       const order = getOrder(sortState);
@@ -101,11 +105,6 @@ export const Nodes = () => {
       // 如果有选中的 region，使用 region 筛选接口
       if (selectedRegion) {
         return apiClient.getNodesByRegion(selectedRegion, backendPage, sortBy, order);
-      }
-      
-      // 如果有搜索关键词，使用搜索接口
-      if (debouncedSearchValue.trim()) {
-        return apiClient.searchNodesByName(debouncedSearchValue.trim(), backendPage, sortBy, order);
       }
       
       // 否则使用普通列表接口
@@ -163,19 +162,10 @@ export const Nodes = () => {
     }
   }, [nodesUpdatedAt]);
 
-  // 搜索防抖：用户输入完 500ms 后才触发搜索
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedSearchValue(searchValue);
-    }, 500);
-
-    return () => clearTimeout(timer);
-  }, [searchValue]);
-
   // 当排序、搜索或 region 条件改变时，自动重置到第一页
   useEffect(() => {
     setCurrentPage(1);
-  }, [sortKey, sortState, debouncedSearchValue, selectedRegion]);
+  }, [sortKey, sortState, selectedRegion]);
 
   // 处理节点数据，添加展示字段
   const processedNodes = useMemo((): NodeWithStats[] => {
@@ -202,17 +192,37 @@ export const Nodes = () => {
   }, [nodes]);
 
   // 获取所有唯一的国家/地区选项
+  const regionCountMap = useMemo(() => {
+    const counts = new Map<string, number>();
+    if (!allNodesData?.nodes) return counts;
+
+    allNodesData.nodes.forEach((node) => {
+      const region = node.country_or_region;
+      if (!region) return;
+      counts.set(region, (counts.get(region) || 0) + 1);
+    });
+    return counts;
+  }, [allNodesData?.nodes]);
+
   const locationOptions: SelectOption[] = useMemo(() => {
     if (!regionsData) return [];
-    
+
+    const globalNodeCount = allNodesData?.nodes?.length;
+    const allLocationsLabel =
+      typeof globalNodeCount === "number"
+        ? `All locations (${globalNodeCount})`
+        : "All locations";
+
+    const regionOptions = regionsData.map((region) => ({
+      label: `${region} (${regionCountMap.get(region) || 0})`,
+      value: region,
+    }));
+
     return [
-      { label: 'All Locations', value: '' },
-      ...regionsData.map(region => ({
-        label: region,
-        value: region,
-      })),
+      ...regionOptions,
+      { label: allLocationsLabel, value: "" },
     ];
-  }, [regionsData]);
+  }, [allNodesData?.nodes?.length, regionsData, regionCountMap]);
 
   // 直接使用服务端返回的数据（已经按服务端排序）
   const tableData: NodeData[] = useMemo(() => {
@@ -367,6 +377,8 @@ export const Nodes = () => {
     },
   ];
   const handleRefresh = () => {
+    setIsRotating(true);
+    setTimeout(() => setIsRotating(false), 300);
     // 清除相关查询缓存，触发重新请求
     queryClient.invalidateQueries({ queryKey: ['nodes', currentNetwork] });
   };
@@ -381,24 +393,148 @@ export const Nodes = () => {
     setCurrentPage(page);
   };
 
-  const handleSearch = (value: string) => {
-    setSearchValue(value);
-    // 不需要重置页码，由 useEffect 在 debouncedSearchValue 变化时处理
-  };
-
   const handleRegionChange = (region: string) => {
     setSelectedRegion(region);
   };
+
+  useEffect(() => {
+    if (!isInfoOpen) return;
+
+    const updateInfoPopoverPosition = () => {
+      if (!infoButtonRef.current || typeof window === "undefined") return;
+
+      const rect = infoButtonRef.current.getBoundingClientRect();
+      const viewportPadding = 12;
+      const maxWidth = Math.min(538, window.innerWidth - viewportPadding * 2);
+
+      let left = rect.left;
+      if (left + maxWidth > window.innerWidth - viewportPadding) {
+        left = window.innerWidth - viewportPadding - maxWidth;
+      }
+      if (left < viewportPadding) {
+        left = viewportPadding;
+      }
+
+      setInfoPopoverPosition({
+        top: rect.bottom + 8,
+        left,
+      });
+    };
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (
+        infoButtonRef.current?.contains(target) ||
+        infoPopoverRef.current?.contains(target)
+      ) {
+        return;
+      }
+      setIsInfoOpen(false);
+    };
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsInfoOpen(false);
+      }
+    };
+
+    updateInfoPopoverPosition();
+    window.addEventListener("resize", updateInfoPopoverPosition);
+    window.addEventListener("scroll", updateInfoPopoverPosition, true);
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleEscape);
+
+    return () => {
+      window.removeEventListener("resize", updateInfoPopoverPosition);
+      window.removeEventListener("scroll", updateInfoPopoverPosition, true);
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [isInfoOpen]);
 
 
 
   return (
     <div className="flex flex-col gap-5">
-      <SectionHeader
-        title="Global Nodes Distribution"
-        lastUpdated={lastUpdated}
-        onRefresh={handleRefresh}
-      />
+      <div className="flex flex-col gap-1">
+        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <span className="type-h2 text-primary">Nodes Overview</span>
+          <div className="flex items-center gap-2 md:gap-4">
+            {lastUpdated && (
+              <span className="type-caption text-secondary">{lastUpdated}</span>
+            )}
+            <GlassButton
+              icon="/refresh.svg"
+              alt="refresh"
+              onClick={handleRefresh}
+              className={isRotating ? "animate-spin" : ""}
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1 flex-wrap">
+          <span className="type-body text-tertiary">
+            Only announced nodes are shown on this page.
+          </span>
+          <button
+            ref={infoButtonRef}
+            type="button"
+            className="-m-1 inline-flex h-6 w-6 items-center justify-center cursor-pointer"
+            aria-label="Node modes info"
+            aria-expanded={isInfoOpen}
+            aria-haspopup="dialog"
+            onClick={() => setIsInfoOpen((prev) => !prev)}
+          >
+            <Image src="/info.svg" alt="info" width={16} height={16} />
+          </button>
+          {isInfoOpen &&
+            infoPopoverPosition &&
+            typeof document !== "undefined" &&
+            createPortal(
+              <div
+                ref={infoPopoverRef}
+                role="dialog"
+                className="fixed z-50 max-w-[calc(100vw-24px)] break-words rounded-lg border border-white bg-popover p-3 shadow-[0_4px_6px_0_rgba(0,0,0,0.08)]"
+                style={{
+                  top: infoPopoverPosition.top,
+                  left: infoPopoverPosition.left,
+                  width: `min(538px, calc(100vw - 24px))`,
+                }}
+              >
+                <div className="flex flex-col gap-3">
+                  <p className="text-primary text-base font-semibold leading-6">
+                    Nodes can operate in two modes:
+                  </p>
+                  <div className="flex flex-col gap-2 type-body">
+                    <p className="text-secondary">
+                      <span className="font-bold text-purple">Announced nodes</span>{" "}
+                      broadcast their node information to the network graph and can appear on this page.
+                    </p>
+                    <p className="text-secondary">
+                      <span className="font-bold text-purple">Unannounced nodes</span>{" "}
+                      participate in the network but do not publish their address, so they won&apos;t be listed here.
+                    </p>
+                  </div>
+                  <div className="w-full border-t border-default" />
+                  <div className="type-body text-secondary">
+                    <p>Nodes are unannounced by default. To become announced, enable</p>
+                    <p className="mt-0.5">
+                      <span className="type-code rounded-[2px] bg-popover-hover px-0.5 py-[1px]">
+                        announce_listening_addr
+                      </span>{" "}
+                      and add your public address to{" "}
+                      <span className="type-code rounded-[2px] bg-popover-hover px-0.5 py-[1px]">
+                        announced_addrs
+                      </span>
+                      .
+                    </p>
+                  </div>
+                </div>
+              </div>,
+              document.body
+            )}
+        </div>
+      </div>
       
       {/* Network Map */}
       <GlassCardContainer className="overflow-hidden">
@@ -418,28 +554,28 @@ export const Nodes = () => {
         )}
       </GlassCardContainer>
 
-      <div className="flex flex-col gap-3 md:flex-row md:justify-between md:items-center">
-        <span className="type-h2">
-          Active Nodes
-        </span>
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full md:w-auto">
-          <SearchInput
-            value={searchValue}
-            placeholder="Search nodes by ID or name"
-            onChange={(value) => {
-              setSearchValue(value);
-            }}
-            onSearch={handleSearch}
-            className="w-full sm:w-80"
-          />
-          <CustomSelect
-            options={locationOptions}
-            value={selectedRegion}
-            onChange={handleRegionChange}
-            placeholder="All Locations"
-            className="w-full sm:w-[180px]"
-          />
-        </div>
+      <div className="flex items-center">
+        <CustomSelect
+          options={locationOptions}
+          value={selectedRegion}
+          onChange={handleRegionChange}
+          placeholder="All locations"
+          className="w-[220px]"
+          triggerIcon={
+            <Image
+              src={selectedRegion ? "/filter-1.svg" : "/filter.svg"}
+              alt="Filter"
+              width={16}
+              height={16}
+              className="w-4 h-4"
+            />
+          }
+          triggerLabelPrefix={selectedRegion ? "Location: " : ""}
+          menuClassName="rounded-lg py-0.5"
+          optionClassName="bg-layer"
+          showDividerBeforeLastOption
+          highlightSelectedTrigger={!!selectedRegion}
+        />
       </div>
 
 
@@ -467,7 +603,7 @@ export const Nodes = () => {
           <div className="absolute top-0 left-0 right-0 bottom-0 flex items-center justify-center">
             <div className="text-center text-muted-foreground">
               <div className="text-lg font-medium mb-2">No nodes found</div>
-              <div className="text-sm">Search only includes announced nodes. Unannounced nodes won&apos;t appear here.</div>
+              <div className="text-sm">Only announced nodes are shown on this page.</div>
             </div>
           </div>
         )}

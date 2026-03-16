@@ -9,6 +9,7 @@ export interface PageHeaderProps {
   backUrl?: string;
   showBackButton?: boolean;
   className?: string;
+  bottomSpacing?: "default" | "none";
 }
 
 export const PageHeader = ({
@@ -17,6 +18,7 @@ export const PageHeader = ({
   backUrl,
   showBackButton = true,
   className = '',
+  bottomSpacing = "default",
 }: PageHeaderProps) => {
   const router = useRouter();
 
@@ -30,8 +32,10 @@ export const PageHeader = ({
     }
   };
 
+  const marginClass = bottomSpacing === "none" ? "" : "mb-5";
+
   return (
-    <div className={`flex items-center gap-3 mb-5 ${className}`}>
+    <div className={`flex items-center gap-3 ${marginClass} ${className}`.trim()}>
       {showBackButton && (
         <Image
           src="/back.svg"
