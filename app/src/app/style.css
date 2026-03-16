@@ -16,7 +16,7 @@
   --text-primary: #0f0f10;
   --text-secondary: #4A4B5E;
   --text-tertiary: #76778B;
-  --text-on: #ffffff;
+  --text-on-color: #ffffff;
 
   /* Surface - Light Mode */
   --surface-layer: rgba(255, 255, 255, 0.3);
@@ -164,10 +164,10 @@
     color: var(--text-tertiary);
   }
   .text-on {
-    color: var(--text-on);
+    color: var(--text-on-color);
   }
   .text-on-color {
-    color: var(--text-on);
+    color: var(--text-on-color);
   }
 
   .bg-layer {
@@ -493,4 +493,3 @@
   pointer-events: none;
   border-radius: inherit;
 }
-

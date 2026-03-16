@@ -1,6 +1,6 @@
 "use client";
 
-import React, { ReactNode, useRef, useState, useEffect } from "react";
+import React, { ReactNode, useRef, useState, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 
 export interface TooltipProps {
@@ -30,54 +30,129 @@ export const Tooltip: React.FC<TooltipProps> = ({
   placement = "top",
 }) => {
   const triggerRef = useRef<HTMLDivElement>(null);
-  const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
-  const isTop = placement === "top";
+  const tooltipRef = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState<{
+    top: number;
+    left: number;
+    placement: "top" | "bottom";
+    arrowLeft: number;
+  } | null>(null);
+
+  const updatePosition = useCallback(() => {
+    if (!show || !triggerRef.current || !tooltipRef.current || typeof window === "undefined") {
+      return;
+    }
+
+    const VIEWPORT_PADDING = 16;
+    const GAP = 8;
+
+    const triggerRect = triggerRef.current.getBoundingClientRect();
+    const tooltipRect = tooltipRef.current.getBoundingClientRect();
+    const preferredPlacement = placement;
+
+    const canPlaceTop =
+      triggerRect.top - GAP - tooltipRect.height >= VIEWPORT_PADDING;
+    const canPlaceBottom =
+      triggerRect.bottom + GAP + tooltipRect.height <=
+      window.innerHeight - VIEWPORT_PADDING;
+
+    let resolvedPlacement: "top" | "bottom" = preferredPlacement;
+    if (preferredPlacement === "top" && !canPlaceTop && canPlaceBottom) {
+      resolvedPlacement = "bottom";
+    } else if (
+      preferredPlacement === "bottom" &&
+      !canPlaceBottom &&
+      canPlaceTop
+    ) {
+      resolvedPlacement = "top";
+    }
+
+    const triggerCenterX = triggerRect.left + triggerRect.width / 2;
+    const minCenterX = VIEWPORT_PADDING + tooltipRect.width / 2;
+    const maxCenterX =
+      window.innerWidth - VIEWPORT_PADDING - tooltipRect.width / 2;
+
+    const clampedLeft =
+      minCenterX > maxCenterX
+        ? window.innerWidth / 2
+        : Math.min(maxCenterX, Math.max(minCenterX, triggerCenterX));
+
+    const idealTop =
+      resolvedPlacement === "top"
+        ? triggerRect.top - GAP - tooltipRect.height
+        : triggerRect.bottom + GAP;
+
+    const clampedTop = Math.min(
+      window.innerHeight - VIEWPORT_PADDING - tooltipRect.height,
+      Math.max(VIEWPORT_PADDING, idealTop)
+    );
+
+    const tooltipLeftEdge = clampedLeft - tooltipRect.width / 2;
+    const ARROW_EDGE_PADDING = 12;
+    const clampedArrowLeft = Math.min(
+      tooltipRect.width - ARROW_EDGE_PADDING,
+      Math.max(ARROW_EDGE_PADDING, triggerCenterX - tooltipLeftEdge)
+    );
+
+    setPosition({
+      top: clampedTop,
+      left: clampedLeft,
+      placement: resolvedPlacement,
+      arrowLeft: clampedArrowLeft,
+    });
+  }, [placement, show]);
 
   useEffect(() => {
-    if (show && triggerRef.current) {
-      const rect = triggerRef.current.getBoundingClientRect();
-
-      if (isTop) {
-        setPosition({
-          top: rect.top - 8,
-          left: rect.left + rect.width / 2,
-        });
-      } else {
-        setPosition({
-          top: rect.bottom + 8,
-          left: rect.left + rect.width / 2,
-        });
-      }
+    if (!show) {
+      setPosition(null);
+      return;
     }
-  }, [show, isTop]);
 
+    const rafId = window.requestAnimationFrame(updatePosition);
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+
+    return () => {
+      window.cancelAnimationFrame(rafId);
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [show, content, updatePosition]);
+
+  const isTop = (position?.placement || placement) === "top";
   const arrowClass = isTop
-    ? "left-1/2 -translate-x-1/2 top-full border-l-4 border-l-transparent border-r-4 border-r-transparent border-t-4 border-t-[#0f0f10]"
-    : "left-1/2 -translate-x-1/2 bottom-full border-l-4 border-l-transparent border-r-4 border-r-transparent border-b-4 border-b-[#0f0f10]";
-
-  const tooltipContent = show && position && (
-    <div
-      className={`fixed px-3 py-2 bg-inverse rounded-lg whitespace-nowrap pointer-events-none ${tooltipClassName}`}
-      style={{
-        zIndex: 999999,
-        top: isTop ? 'auto' : position.top,
-        bottom: isTop ? `calc(100vh - ${position.top}px)` : 'auto',
-        left: position.left,
-        transform: 'translateX(-50%)',
-      }}
-    >
-      <div className="text-body text-on-color">{content}</div>
-      {/* 小三角 */}
-      {showArrow && (
-        <div className={`absolute w-0 h-0 ${arrowClass}`}></div>
-      )}
-    </div>
-  );
+    ? "top-full border-l-4 border-l-transparent border-r-4 border-r-transparent border-t-4 border-t-[#0f0f10]"
+    : "bottom-full border-l-4 border-l-transparent border-r-4 border-r-transparent border-b-4 border-b-[#0f0f10]";
 
   return (
     <div ref={triggerRef} className={`inline-block ${className}`}>
       {children}
-      {tooltipContent && createPortal(tooltipContent, document.body)}
+      {show &&
+        createPortal(
+          <div
+            ref={tooltipRef}
+            className={`fixed px-3 py-2 bg-inverse rounded-lg whitespace-nowrap pointer-events-none ${tooltipClassName}`}
+            style={{
+              zIndex: 999999,
+              top: position?.top ?? -9999,
+              left: position?.left ?? -9999,
+              transform: "translateX(-50%)",
+              visibility: position ? "visible" : "hidden",
+            }}
+          >
+            <div className="text-body text-on-color">{content}</div>
+            {showArrow && (
+              <div
+                className={`absolute w-0 h-0 ${arrowClass}`}
+                style={{
+                  left: position?.arrowLeft ?? "50%",
+                  transform: "translateX(-50%)",
+                }}
+              ></div>
+            )}
+          </div>,
+          document.body
+        )}
     </div>
   );
 };

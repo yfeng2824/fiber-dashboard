@@ -65,7 +65,11 @@ export const NodeDetail = () => {
   }, [sortKey, sortState]);
 
   // 拉取节点信息
-  const { data: nodeInfo } = useQuery<RustNodeInfo | null>({
+  const {
+    data: nodeInfo,
+    isLoading: nodeLoading,
+    isFetched: nodeFetched,
+  } = useQuery<RustNodeInfo | null>({
     queryKey: ["node-info", nodeId, currentNetwork],
     queryFn: () => apiClient.getNodeInfo(nodeId),
     enabled: !!nodeId,
@@ -338,7 +342,7 @@ export const NodeDetail = () => {
     {
       key: "assetName",
       label: "Asset name",
-      width: "flex-1",
+      width: "w-1/2",
       render: (value) => {
         // 使用统一的资产颜色配置
         const color = getAssetColorUtil(String(value).toLowerCase());
@@ -356,7 +360,7 @@ export const NodeDetail = () => {
     {
       key: "autoAcceptValue",
       label: "Auto accept value",
-      width: "flex-1",
+      width: "w-1/2",
       showInfo: true,
       infoTooltip: "The minimum amount that the node will automatically accept for opening a new channel",
     },
@@ -365,12 +369,13 @@ export const NodeDetail = () => {
     <div>
       <PageHeader title="Node Details" />
       <NodeDetailCard
-        name={nodeInfo?.node_name || "-"}
+        name={nodeInfo?.node_name || "Unnamed"}
         status="Active"
         hash={nodeInfo?.node_id || nodeId}
         location={locationText}
         lastSeen={lastSeenText}
-        isUnannounced={!nodeInfo}
+        isUnannounced={nodeFetched && !nodeInfo}
+        isLoading={!nodeFetched || nodeLoading}
       />
       
       {/* KPI 卡片 */}
@@ -392,7 +397,7 @@ export const NodeDetail = () => {
       </div>
        */}
       {/* Supporting Assets Section */}
-      {supportingAssets.length > 0 && (
+      {nodeFetched && !!nodeInfo && supportingAssets.length > 0 && (
         <>
           <div className="pt-8">
             <SectionHeader title={`Supporting Assets (${supportingAssets.length})`} />
@@ -402,13 +407,14 @@ export const NodeDetail = () => {
             <Table 
               columns={assetColumns} 
               data={supportingAssets}
+              minTableWidth="100%"
             />
           </GlassCardContainer>
         </>
       )}
       
       <div className="pt-8">
-        <SectionHeader title={`Channels(${totalChannels})`} />
+        <SectionHeader title={`Channels (${totalChannels})`} />
       </div>
       
       {/* 表格和分页 */}
