@@ -252,9 +252,9 @@ export const NodeDetail = () => {
   const supportingAssets = useMemo((): AssetData[] => {
     const assets: AssetData[] = [];
     
-    // 添加 CKB 数据（auto_accept_min_ckb_funding_amount 单位是 CKB）
+    // 添加 CKB 数据（auto_accept_min_ckb_funding_amount 单位是 Shannon，需转换为 CKB）
     if (nodeInfo) {
-      const ckbAmount = nodeInfo.auto_accept_min_ckb_funding_amount;
+      const ckbAmount = nodeInfo.auto_accept_min_ckb_funding_amount / 100_000_000;
       assets.push({
         assetName: 'CKB',
         autoAcceptValue: `${formatAssetValue(ckbAmount)} CKB`,
